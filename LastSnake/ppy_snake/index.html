@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake Game</title>
+    <title>Snake Game</title>
+    <style>
+    body {
+        margin: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    #info {
+        text-align: center;
+        font-size: 24px;
+        color: green;
+        margin-top: 10px;  /* Üstten biraz boşluk ekleyin */
+    }
+    canvas {
+        background-color: black;
+        display: block;
+        margin: 20px 0;  /* Üst ve alt boşluk ekleyin */
+    }
+</style>
+</head>
+<body>
+<div id="info">Player: Name   Score: 0   Level: Easy   Screen Size: 500x500</div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+let SPACE_SIZE = 50;
+let SPEED;
+const BODY_PARTS = 3;
+const SNAKE_COLOR = "#084065";
+const FOOD_COLOR = "#FF0000";
+const OBSTACLE_COLOR="#bbe796";
+const MOVINGOBSTACLE_COLOR="#91d3bc";
+
+const COLOR_ONE="#f3f3f3";
+const COLOR_TWO="#eeeeee";
+
+const playerName = get_player_name();
+let gridSize = get_grid_size();
+let difficulty = get_difficulty_level();
+
+while (true) {
+    if (gridSize < 5 || gridSize>25 || isNaN(gridSize)) {
+        gridSize = get_grid_size();
+    }
+    else if (15 <= gridSize && gridSize < 18) {
+        SPACE_SIZE = 40;
+        break;
+    }
+    else if (18<= gridSize && gridSize<22){
+        SPACE_SIZE=33;
+        break;
+    }
+    else if(22<=gridSize && gridSize<=25){
+        SPACE_SIZE=29;
+        break;
+    }
+    else break;
+}
+SPEED=SPACE_SIZE*10;
+
+const GAME_WIDTH= gridSize * SPACE_SIZE;
+const GAME_HEIGHT = gridSize * SPACE_SIZE;
+
+let score = 0;
+let direction = 'down';
+let directionQueue = [];
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+canvas.width=GAME_WIDTH;
+canvas.height=GAME_HEIGHT;
+
+
+//new addition-initializing elements
+let speedBoostActive = false;
+let speedBoostCooldown = false;
+
+for (let row = 0; row < gridSize; row++) {
+    for (let col = 0; col < gridSize; col++) {
+        if ((row + col) % 2 === 0) {
+            ctx.fillStyle = COLOR_ONE;
+        } else {
+            ctx.fillStyle = COLOR_TWO;
+        }
+        ctx.fillRect(col * SPACE_SIZE, row * SPACE_SIZE, SPACE_SIZE, SPACE_SIZE);
+    }
+}
+
+class Snake {
+    constructor() {
+        this.bodySize = BODY_PARTS;
+        this.coordinates = [];
+        this.squares = [];
+        for (let i = 0; i < BODY_PARTS; i++) {
+            this.coordinates.push([0, 0]);
+        }
+        for (const [x, y] of this.coordinates) {
+            const square = createSquare(x, y, SNAKE_COLOR);
+            this.squares.push(square);
+        }
+    }
+}
+
+class Obstacle {
+    constructor(snakeCoordinates) {
+        this.coordinates = this.generateCoordinates(snakeCoordinates);
+        const [x, y] = this.coordinates;
+        createSquare(x, y, OBSTACLE_COLOR);
+    }
+    generateCoordinates(snakeCoordinates) {
+        while (true) {
+            const x = Math.floor(Math.random() * (GAME_WIDTH / SPACE_SIZE)-1) * SPACE_SIZE;
+            const y = Math.floor(Math.random() * (GAME_HEIGHT / SPACE_SIZE)-1) * SPACE_SIZE;
+
+            const collision = snakeCoordinates.some(coordinate => coordinate[0] === x && coordinate[1] === y);
+            if (!collision) {
+                return [x, y];
+            }
+        }
+    }
+}
+
+class MovingObstacle {
+    constructor(snakeCoordinates) {
+        this.coordinates = this.generateCoordinates(snakeCoordinates);
+        const [x, y] = this.coordinates;
+        this.square = createSquare(x, y, MOVINGOBSTACLE_COLOR);
+        this.direction = 'left';
+    }
+
+    generateCoordinates(snakeCoordinates) {
+        while (true) {
+            const x = Math.floor(Math.random() * (GAME_WIDTH / SPACE_SIZE)) * SPACE_SIZE;
+            const y = Math.floor(Math.random() * (GAME_HEIGHT / SPACE_SIZE)) * SPACE_SIZE;
+            let collision =false;
+            if(snakeCoordinates.some(coordinate => coordinate[0] === x && coordinate[1] === y)){
+                collision=true;
+                break;
+            }
+
+            for (let obstacle of obstacles) {
+                const [obstacleX, obstacleY] = obstacle.coordinates;
+                if ((x === obstacleX && y === obstacleY) ||
+                    (x-SPACE_SIZE ===obstacleX && y ===obstacleY)
+                    || x === 0 || x === (gridSize-1)*SPACE_SIZE ){
+                    collision = true;
+                    break;
+                }
+            }
+            if (!collision) {
+                return [x, y];
+            }
+        }
+    }
+
+    move() {
+        let [x, y] = this.coordinates;
+        ctx.clearRect(x, y, SPACE_SIZE, SPACE_SIZE);
+        if (this.direction === 'left') {
+            if ((x+y) %2 ===0){
+                createSquare(x,y, COLOR_ONE);
+            }
+            else{
+                createSquare(x,y,COLOR_TWO);
+            }
+            x -= SPACE_SIZE;
+            this.direction = 'right';
+
+        } else if (this.direction === 'right') {
+            if ((x+y) %2 ===0){
+                createSquare(x,y, COLOR_ONE);
+            }
+            else {
+                createSquare(x, y, COLOR_TWO);
+            }
+            x += SPACE_SIZE;
+            this.direction = 'left';
+        }
+        this.coordinates = [x, y];
+        this.square = createSquare(x, y, MOVINGOBSTACLE_COLOR);
+    }
+}
+
+class Food {
+    constructor(movingObstacles, obstacles,snakeCoordinates) {
+        this.coordinates = this.generateCoordinates(movingObstacles, obstacles,snakeCoordinates);
+        const [x, y] = this.coordinates;
+        createSquare(x, y, FOOD_COLOR);
+    }
+
+    generateCoordinates(movingObstacles, obstacles,snakeCoordinates) {
+        while (true) {
+            const x = Math.floor(Math.random() * ((GAME_WIDTH / SPACE_SIZE) - 1)) * SPACE_SIZE;
+            const y = Math.floor(Math.random() * ((GAME_HEIGHT / SPACE_SIZE)-1)) * SPACE_SIZE;
+            let collision = false;
+
+            for (let obstacle of obstacles) {
+                const [obstacleX, obstacleY] = obstacle.coordinates;
+                if (x === obstacleX && y === obstacleY) {
+                    collision = true;
+                    break;
+                }
+            }
+
+            for(let movingObstacle of movingObstacles){
+                const[movObX1, movObY1]=movingObstacle.coordinates;
+
+                if ((x ===movObX1 || x === movObX1-SPACE_SIZE || x === movObX1+SPACE_SIZE)  && y ===movObY1){
+                    collision =true;
+                    break;
+                }
+            }
+
+            for (let snakeCoord of snakeCoordinates) {
+            const [snakeX, snakeY] = snakeCoord;
+            if (x === snakeX && y === snakeY) {
+                collision = true;
+                break;
+            }
+        }
+
+            if (!collision) {
+                return [x, y];
+            }
+        }
+    }
+}
+
+function createSquare(x, y, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, SPACE_SIZE, SPACE_SIZE);
+    return { x, y };
+}
+
+function changeDirection(newDirection) {
+    directionQueue.push(newDirection);
+}
+
+function processDirectionQueue() {
+    const oppositeDirections = { up: 'down', down: 'up', left: 'right', right: 'left' };
+    if (directionQueue.length > 0) {
+        const newDirection = directionQueue.shift();
+        if (newDirection !== oppositeDirections[direction]) {
+            direction = newDirection;
+        }
+    }
+}
+
+function get_player_name() {
+    let playerName = prompt("Enter your name:");
+    return playerName;
+}
+
+function get_grid_size() {
+    let gridSize = prompt("Enter the size of the grid from 5x5 to 25x25 (e.g. 10):");
+    return parseInt(gridSize);
+}
+
+function get_difficulty_level() {
+    var difficultyLevel = prompt("Choose the level (Easy, Medium, Hard, Challenge1, Challenge2, Challenge3):");
+    return difficultyLevel;
+}
+
+function nextTurn(snake, food) {
+    processDirectionQueue();
+    let [x, y] = snake.coordinates[0];
+    switch (direction) {
+        case 'up':
+            y -= SPACE_SIZE;
+            break;
+        case 'down':
+            y += SPACE_SIZE;
+            break;
+        case 'left':
+            x -= SPACE_SIZE;
+            break;
+        case 'right':
+            x += SPACE_SIZE;
+            break;
+    }
+    snake.coordinates.unshift([x, y]);
+    const newSquare = createSquare(x, y, SNAKE_COLOR);
+    snake.squares.unshift(newSquare);
+
+    checkCollisionWithWall(snake);
+
+    if (checkCollisions(snake) || checkCollisionWithObstacle(x, y)) {
+        gameOver();
+    }
+
+    if (x === food.coordinates[0] && y === food.coordinates[1]) {
+        score++;
+        document.getElementById('score').innerText = "Score: " + score;
+        createSquare(food.coordinates[0], food.coordinates[1], SNAKE_COLOR)
+        SPEED = SPEED * 0.93;
+        food = new Food(movingObstacles, obstacles, snake.coordinates);
+        updateInfoLabel()
+    } else {
+        const [lastX, lastY] = snake.coordinates.pop();
+        const lastSquare = snake.squares.pop();
+        ctx.clearRect(lastX, lastY, SPACE_SIZE, SPACE_SIZE);
+        const a = lastX / SPACE_SIZE;
+        const b = lastY / SPACE_SIZE;
+        if ((a + b) % 2 === 0) { createSquare(lastX, lastY, COLOR_ONE); }
+        else { createSquare(lastX, lastY, COLOR_TWO); }
+    }
+    setTimeout(() => nextTurn(snake, food), SPEED);
+}
+
+function checkCollisionWithObstacle(snakeHeadX, snakeHeadY) {
+    for (let obstacle of obstacles) {
+        let [x, y] = obstacle.coordinates;
+        if (snakeHeadX === x && snakeHeadY === y) {
+            return true;
+        }
+    }
+    for (let movingObstacle of movingObstacles) {
+        let [x, y] = movingObstacle.coordinates;
+        if (snakeHeadX === x && snakeHeadY === y) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function checkCollisionWithWall(snake) {
+    let [x, y] = snake.coordinates[0];
+    if (x < 0) {
+        x = GAME_WIDTH - SPACE_SIZE + SPACE_SIZE;
+    } else if (x >= GAME_WIDTH) {
+        x = 0 - SPACE_SIZE;
+    } else if (y < 0) {
+        y = GAME_HEIGHT - SPACE_SIZE + SPACE_SIZE;
+    } else if (y >= GAME_HEIGHT) {
+        y = 0 - SPACE_SIZE;
+    }
+    snake.coordinates[0] = [x, y];
+}
+
+function updateInfoLabel() {
+    const infoLabel = document.getElementById("info");
+    infoLabel.innerText = Player: ${playerName}   Score: ${score} Level: ${difficulty}  Screen Size: ${gridSize}x${gridSize};
+}
+
+function checkCollisions(snake) {
+    const [x, y] = snake.coordinates[0];
+    for (let i = 1; i < snake.coordinates.length; i++) {
+        const [bodyX, bodyY] = snake.coordinates[i];
+        if (x === bodyX && y === bodyY) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function gameOver() {
+    ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    ctx.font = ${SPACE_SIZE / 2.5}px consolas;
+    ctx.fillStyle = "red";
+    ctx.textAlign = "center";
+    ctx.fillText("GAME OVER! Score: " + score, GAME_WIDTH / 2, GAME_HEIGHT / 2);
+    stopMovingObstacles();
+
+    const data = {
+        name: playerName,
+        map_size: gridSize,
+        level: difficulty,
+        score: score
+    };
+
+    fetch('/submit_score', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Success:', data);
+    })
+    .catch((error) => {
+        console.error('Error:', error);
+    });
+
+    throw new Error("Game Over");
+}
+
+function stopMovingObstacles() {
+    clearInterval(movingObstacleInterval);
+}
+
+const snake = new Snake();
+const obstacles = [];
+const movingObstacles = [];
+let movingObstacleInterval;
+updateInfoLabel();
+
+if (difficulty.toLowerCase() === 'easy') {
+} else if (difficulty.toLowerCase() === 'medium') {
+    for (let i = 0; i < Math.floor(gridSize * gridSize / 25); i++) {
+        let obstacle = new Obstacle(snake.coordinates);
+        obstacles.push(obstacle);
+    }
+} else if (difficulty.toLowerCase() === 'hard') {
+    for (let i = 0; i < Math.floor(gridSize * gridSize / 15); i++) {
+        let obstacle = new Obstacle(snake.coordinates);
+        obstacles.push(obstacle);
+    }
+} else if (difficulty.toLowerCase() === 'challenge1') {
+    for (let i = 0; i < Math.floor(gridSize * gridSize / 25); i++) {
+        let movingObstacle = new MovingObstacle(snake.coordinates);
+        movingObstacles.push(movingObstacle);
+    }
+} else if (difficulty.toLowerCase() === 'challenge2') {
+    for (let i = 0; i < Math.floor(gridSize * gridSize / 25); i++) {
+        let obstacle = new Obstacle(snake.coordinates);
+        obstacles.push(obstacle);
+    }
+    for (let i = 0; i < Math.floor(gridSize * gridSize / 25); i++) {
+        let movingObstacle = new MovingObstacle(snake.coordinates);
+        movingObstacles.push(movingObstacle);
+    }
+} else if (difficulty.toLowerCase() === 'challenge3') {
+    for (let i = 0; i < Math.floor(gridSize * gridSize / 15); i++) {
+        let movingObstacle = new MovingObstacle(snake.coordinates);
+        movingObstacles.push(movingObstacle);
+    }
+} else {
+    difficulty = get_difficulty_level();
+}
+
+movingObstacleInterval = setInterval(() => {
+    for (let movingObstacle of movingObstacles) {
+        movingObstacle.move();
+    }
+}, 1000);
+
+let food = new Food(movingObstacles, obstacles, snake.coordinates);
+
+document.addEventListener('keydown', (event) => {
+    switch (event.key) {
+        case 'ArrowUp':
+            changeDirection('up');
+            break;
+        case 'ArrowDown':
+            changeDirection('down');
+            break;
+        case 'ArrowLeft':
+            changeDirection('left');
+            break;
+        case 'ArrowRight':
+            changeDirection('right');
+            break;
+        case 'Escape':
+            gameOver();
+            break;
+
+            //space for boost
+        case ' ':
+            if (!speedBoostActive && !speedBoostCooldown) {
+                speedBoost();
+            }
+            break;
+    }
+});
+
+
+//New function--This function increases the speed of Snake 3 times and
+//starts timer for 30 seconds to be able to use it again
+function speedBoost() {
+    speedBoostActive = true;
+    SPEED /= 3;
+
+    setTimeout(() => {
+        SPEED *= 3;
+        speedBoostActive = false;
+        speedBoostCooldown = true;
+
+        setTimeout(() => {
+            speedBoostCooldown = false;
+        }, 30000);
+    }, 1000);
+}
+
+nextTurn(snake, food);
+
+    </script>
+    <div id="score" style="font-size: 24px; color: white; text-align: center; margin-top: 10px;">Score: 0</div>
+</body>
+</html>
